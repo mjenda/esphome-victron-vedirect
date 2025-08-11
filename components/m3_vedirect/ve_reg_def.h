@@ -13,7 +13,7 @@ namespace m3_ve_reg {
 
 // clang-format on
 
-#pragma pack(push, 1)
+#pragma pack(push, 2)
 
 /// @brief Base class acting as 'enum helper' for registers containing enumerated values
 struct ENUM_DEF {
