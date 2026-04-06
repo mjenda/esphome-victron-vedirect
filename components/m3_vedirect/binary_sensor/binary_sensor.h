@@ -35,6 +35,7 @@ class BinarySensor final : public Register, public esphome::binary_sensor::Binar
 
   void link_disconnected_() override;
   void init_reg_def_() override;
+  void apply_entity_name_(const char *name) override { this->configure_entity_(name, fnv1_hash_object_id(name, strlen(name)), 0); }
   inline void parse_bitmask_(BITMASK_DEF::bitmask_t bitmask_value) override {
     this->publish_state(bitmask_value & this->mask_);
   }
