@@ -161,12 +161,8 @@ class Manager : public uart::UARTDevice, public Component, protected FrameHandle
    public:
     TEMPLATABLE_VALUE(std::string, data)
 
-#if ESPHOME_VERSION_CODE >= VERSION_CODE(2025, 11, 0)
     // See https://github.com/esphome/esphome/pull/11704
     void play(const Ts &...x) override{
-#else
-    void play(Ts... x) {
-#endif
         for (auto it = Manager::StaticIterator(this->vedirect_id_.value(x...)); it.has_next();) {
           it.next()->send_hexframe(this->data_.value(x...));
   }
@@ -179,12 +175,8 @@ template<typename... Ts> class Action_send_command : public BaseAction<Ts...> {
   TEMPLATABLE_VALUE(uint32_t, data)
   TEMPLATABLE_VALUE(uint8_t, data_size)
 
-#if ESPHOME_VERSION_CODE >= VERSION_CODE(2025, 11, 0)
   // See https://github.com/esphome/esphome/pull/11704
   void play(const Ts &...x) override{
-#else
-    void play(Ts... x) {
-#endif
 
       for (auto it = Manager::StaticIterator(this->vedirect_id_.value(x...)); it.has_next();) {
         HEXFRAME::COMMAND command = (HEXFRAME::COMMAND) this->command_.value(x...);
@@ -230,7 +222,7 @@ bool is_connected() const { return this->connected_; }
 
 /// @brief Initialize an entity (Register) with the correct naming/id scheme
 /// when dynamically created by the Manager.
-void init_entity(EntityBase *entity, const REG_DEF *reg_def, const char *name);
+void init_entity(Register *entity, const REG_DEF *reg_def, const char *name);
 
 bool has_multi_manager() { return Manager::list_->next_ != nullptr; }
 

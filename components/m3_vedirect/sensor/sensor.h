@@ -36,6 +36,7 @@ class Sensor final : public NumericRegister, public Register, public esphome::se
 
   void link_disconnected_() override;
   void init_reg_def_() override;
+  void apply_entity_name_(const char *name) override { this->configure_entity_(name, fnv1_hash_object_id(name, strlen(name)), 0); }
 
 #if defined(VEDIRECT_USE_HEXFRAME)
   static void parse_hex_default_(Register *hex_register, const RxHexFrame *hex_frame);
