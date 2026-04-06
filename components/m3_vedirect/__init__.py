@@ -8,6 +8,7 @@ import esphome.codegen as cg
 from esphome.components import uart
 import esphome.config_validation as cv
 import esphome.const as ec
+from esphome.core import CORE
 import esphome.cpp_generator as cpp
 
 from . import ve_reg
@@ -16,6 +17,7 @@ CODEOWNERS = ["@krahabb"]
 DEPENDENCIES = ["uart"]
 MULTI_CONF = True
 
+ESPHOME_VERSION = cv.Version.parse(ec.__version__)
 
 ENUM_DEF_struct = ve_reg.ns.struct("ENUM_DEF")
 ENUM_DEF_LOOKUP_DEF_struct = ENUM_DEF_struct.struct("LOOKUP_DEF")
@@ -32,6 +34,7 @@ HexFrameTrigger = Manager.class_(
 
 CONF_VEDIRECT_ID = "vedirect_id"
 CONF_VEDIRECT_ENTITIES = "vedirect_entities"
+CONF_VEDIRECT_DYNAMIC_ENTITIES_MAX = "vedirect_dynamic_entities_max"
 CONF_TEXTFRAME = "textframe"
 CONF_HEXFRAME = "hexframe"
 
@@ -231,6 +234,18 @@ def deflate_flavors(flavors: typing.Iterable):
 class VEDirectPlatform:
     COMPONENT_NS: typing.Final = m3_vedirect_ns
 
+    DEFAULT_DYNAMIC_ENTITIES_MAX: typing.Final = {
+        "binary_sensor": 5,
+        "number": 5,
+        "select": 5,
+        "sensor": 10,
+        "switch": 5,
+        "text_sensor": 10,
+    }
+
+    RegisterEntityT = typing.Callable[[typing.Any, typing.Any], typing.Awaitable[None]]
+    register_entity: RegisterEntityT
+
     CustomEntityDef = namedtuple("CustomEntityDef", ("schema", "define"))
 
     def __init__(
@@ -245,6 +260,9 @@ class VEDirectPlatform:
         ],  # vedirect classes supported by this platform
         vedirect_has_text: bool,  # indicates if this platform supports entities for the TEXT frames
         *vedirect_schemas,  # extra schemas added to base vedirect_schema
+        register_entity: (
+            RegisterEntityT | None
+        ) = None,  # optional custom register_entity function
     ):
         self.snake_name = snake_name
         self.class_name = "".join([p.capitalize() for p in snake_name.split("_")])
@@ -253,7 +271,7 @@ class VEDirectPlatform:
             self.class_name, getattr(base_module, self.class_name)
         )
         # grab some symbols from the base platform
-        self.register_entity: typing.Callable = getattr(
+        self.register_entity = register_entity or getattr(
             base_module, f"register_{snake_name}"
         )
         self.new_base_entity: typing.Callable = getattr(
@@ -289,6 +307,10 @@ class VEDirectPlatform:
         return cv.Schema(
             {
                 cv.Required(CONF_VEDIRECT_ID): cv.use_id(Manager),
+                cv.Optional(
+                    CONF_VEDIRECT_DYNAMIC_ENTITIES_MAX,
+                    default=self.DEFAULT_DYNAMIC_ENTITIES_MAX[self.snake_name],
+                ): cv.positive_int,
                 cv.Optional(CONF_VEDIRECT_ENTITIES): cv.ensure_list(
                     self.vedirect_schema
                 ),
@@ -315,11 +337,17 @@ class VEDirectPlatform:
         return config
 
     async def new_vedirect_entity(self, config, manager):
-        entity = cg.new_Pvariable(config[ec.CONF_ID], manager)
+        reg = cg.new_Pvariable(config[ec.CONF_ID], manager)
 
+        # configure binary-like entities
+        if CONF_MASK in config:
+            cg.add(reg.set_mask(config[CONF_MASK]))
+
+        init_args = [reg]
         register_config = config[CONF_REGISTER]
         if isinstance(register_config, str):
-            cg.add(manager.init_register(entity, register_config))
+            init_args.append(register_config)
+
         elif isinstance(register_config, dict):
             register_id = register_config[CONF_ADDRESS]
             if register_id:
@@ -341,7 +369,6 @@ class VEDirectPlatform:
                                 _cls.enum,
                                 cpp.UnaryOpExpression("&", enum_def),
                             )
-
                         case ve_reg.CLASS.NUMERIC:
                             scale = class_config[CONF_SCALE]
                             reg_def = global_object_construct(
@@ -359,34 +386,27 @@ class VEDirectPlatform:
                                 register_config[CONF_DATA_TYPE],
                                 _cls.enum,
                             )
+                    init_args.append(cpp.UnaryOpExpression("&", reg_def))
                     break
             else:
-                reg_def = global_object_construct(
-                    register_config[CONF_REG_DEF_ID],
-                    register_id,
-                    register_config[CONF_DATA_TYPE],
-                    ve_reg.CLASS.VOID.enum,
-                )
-
-            cg.add(manager.init_register(entity, cpp.UnaryOpExpression("&", reg_def)))
+                if register_id or (CONF_TEXT_LABEL not in register_config):
+                    reg_def = global_object_construct(
+                        register_config[CONF_REG_DEF_ID],
+                        register_id,
+                        register_config[CONF_DATA_TYPE],
+                        ve_reg.CLASS.VOID.enum,
+                    )
+                    init_args.append(cpp.UnaryOpExpression("&", reg_def))
 
             if CONF_TEXT_LABEL in register_config:
                 define_use_textframe()
-                cg.add(manager.init_register(entity, register_config[CONF_TEXT_LABEL]))
+                init_args.append(register_config[CONF_TEXT_LABEL])
 
-        # configure binary-like entities
-        if CONF_MASK in config:
-            cg.add(entity.set_mask(config[CONF_MASK]))
-
-        return entity
+        cg.add(manager.init_register(*init_args))
+        return reg
 
     async def to_code(self, config: dict):
         manager = await cg.get_variable(config[CONF_VEDIRECT_ID])
-        cg.add(
-            cpp.RawStatement(
-                f"m3_vedirect::Register::register_platform(m3_vedirect::Register::{self.class_name}, m3_vedirect::{self.class_name}::build_entity);"
-            )
-        )
         for entity_key, entity_config in config.items():
             if entity_key == CONF_VEDIRECT_ENTITIES:
                 for _entity_config in entity_config:
@@ -401,6 +421,16 @@ class VEDirectPlatform:
 
                 entity = await self.new_base_entity(entity_config)
                 cg.add(getattr(manager, f"set_{entity_key}")(entity))
+
+        if cv.Version(2025, 8, 0) <= ESPHOME_VERSION:
+            # Platforms entities vectors are now statically pre-allocated so we have
+            # to tell EspHome core how many entities we want. This is especially needed for dynamically
+            # allocated ones since we don't know the total number at compile time ;)
+            # BEWARE: we should loop on this api but we take the direct path
+            # CORE.register_platform_component(self.snake_name, None)
+            CORE.platform_counts[self.snake_name] += config[
+                CONF_VEDIRECT_DYNAMIC_ENTITIES_MAX
+            ]
 
 
 # main component (Manager) schema
@@ -470,7 +500,8 @@ async def to_code(config: dict):
     """
     var = cg.new_Pvariable(config[ec.CONF_ID])
     cg.add(var.set_vedirect_id(str(var.base)))
-    cg.add(var.set_vedirect_name(config.get(ec.CONF_NAME, str(var.base))))
+    if ec.CONF_NAME in config:
+        cg.add(var.set_vedirect_name(config[ec.CONF_NAME]))
     for flavor in deflate_flavors(config[CONF_FLAVOR]):
         cg.add_build_flag(f"-DVEDIRECT_FLAVOR_{flavor}")
     if CONF_TEXTFRAME in config:

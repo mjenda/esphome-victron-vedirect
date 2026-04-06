@@ -1,7 +1,9 @@
 #include "switch.h"
 #include "esphome/core/application.h"
+#if ESPHOME_VERSION_CODE < VERSION_CODE(2025, 11, 0)
 #ifdef USE_API
 #include "esphome/components/api/api_server.h"
+#endif
 #endif
 
 #include "../manager.h"
@@ -11,19 +13,29 @@
 namespace esphome {
 namespace m3_vedirect {
 
-#ifdef ESPHOME_LOG_HAS_DEBUG
-static const char *const TAG = "m3_vedirect.switch";
+Register *Switch::build_entity(Manager *manager, const REG_DEF *reg_def, const char *name) {
+#if ESPHOME_VERSION_CODE >= VERSION_CODE(2025, 8, 0)
+  if (App.get_switches().size() >= ESPHOME_ENTITY_SWITCH_COUNT) {
+    return Register::drop_platform(manager, Platform::Switch);
+  }
 #endif
-
-Register *Switch::build_entity(Manager *manager, const char *name, const char *object_id) {
   auto entity = new Switch(manager);
-  Register::dynamic_init_entity_(entity, name, object_id, manager->get_vedirect_name(), manager->get_vedirect_id());
+  manager->init_entity(entity, reg_def, name);
   App.register_switch(entity);
-#ifdef USE_API
-  if (api::global_api_server)
-    entity->add_on_state_callback([entity](bool state) { api::global_api_server->on_switch_update(entity, state); });
+#if ESPHOME_VERSION_CODE < VERSION_CODE(2025, 11, 0)
+// See https://github.com/esphome/esphome/pull/11772
+#if defined(USE_API)
+  entity->add_on_state_callback([entity](bool state) { api::global_api_server->on_switch_update(entity, state); });
+#endif
 #endif
   return entity;
+}
+
+void Switch::link_disconnected_() {
+  this->raw_value_ = BITMASK_DEF::VALUE_UNKNOWN;
+#if ESPHOME_VERSION_CODE >= VERSION_CODE(2025, 8, 0)
+  this->publish_dedup_.next_unknown();
+#endif
 }
 
 void Switch::init_reg_def_() {
@@ -50,17 +62,13 @@ void Switch::init_reg_def_() {
 }
 
 void Switch::parse_bitmask_(BITMASK_DEF::bitmask_t bitmask_value) {
-  if (this->raw_value_ != bitmask_value) {
-    this->raw_value_ = bitmask_value;
-    this->publish_state_(bitmask_value & this->mask_);
-  }
+  this->raw_value_ = bitmask_value;
+  this->publish_state(bitmask_value & this->mask_);
 }
 
 void Switch::parse_enum_(ENUM_DEF::enum_t enum_value) {
-  if (this->raw_value_ != enum_value) {
-    this->raw_value_ = enum_value;
-    this->publish_state_(enum_value == this->mask_);
-  }
+  this->raw_value_ = enum_value;
+  this->publish_state(enum_value == this->mask_);
 }
 
 #if defined(VEDIRECT_USE_HEXFRAME)
@@ -82,29 +90,28 @@ void Switch::write_state(bool state) {
       hexvalue = state ? 1 : 0;
       break;
   }
-  this->manager->request(HEXFRAME::COMMAND::Set, this->reg_def_->register_id, &hexvalue, this->reg_def_->data_type,
-                         request_callback_, this);
-}
-
-void Switch::request_callback_(Manager::request_callback_param_t callback_param, const RxHexFrame *hex_frame) {
-  Switch *_switch = reinterpret_cast<Switch *>(callback_param);
-  if (!hex_frame || (hex_frame && hex_frame->flags())) {
-    // Error or timeout..resend actual state since it looks like HA esphome does optimistic
-    // updates in it's HA entity instance...
-    _switch->republish_state_();
-  } else {
-    // Invalidate our state so that the subsequent dispatching/parsing goes through
-    // an effective publish_state. This is needed (again) since the frontend already
-    // optimistically updated the entity to the new value but even in case of success,
-    // the device might 'force' a different setting if the request was for an unsupported
-    // value
-    _switch->raw_value_ = BITMASK_DEF::VALUE_UNKNOWN;
-  }
+  this->request_set_(hexvalue, [this](const HexFrame *frame, uint8_t error) {
+#if ESPHOME_VERSION_CODE >= VERSION_CODE(2025, 8, 0)
+    this->publish_dedup_.next_unknown();
+#endif
+    if (error) {
+      // Error or timeout..resend actual state since it looks like HA esphome does optimistic
+      // updates in it's HA entity instance...
+      this->publish_state(this->inverted_ != this->state);
+    } else {
+      // Invalidate our state so that the subsequent dispatching/parsing goes through
+      // an effective publish_state. This is needed (again) since the frontend already
+      // optimistically updated the entity to the new value but even in case of success,
+      // the device might 'force' a different setting if the request was for an unsupported
+      // value
+      this->raw_value_ = BITMASK_DEF::VALUE_UNKNOWN;
+    }
+  });
 }
 
 void Switch::parse_hex_default_(Register *hex_register, const RxHexFrame *hex_frame) {
   static_assert(RxHexFrame::ALLOCATED_DATA_SIZE >= 1, "HexFrame storage might lead to access overflow");
-  static_cast<Switch *>(hex_register)->publish_state_(hex_frame->data_t<uint8_t>());
+  static_cast<Switch *>(hex_register)->publish_state(hex_frame->data_t<uint8_t>());
 }
 
 void Switch::parse_hex_bitmask_(Register *hex_register, const RxHexFrame *hex_frame) {
@@ -121,7 +128,7 @@ void Switch::parse_hex_enum_(Register *hex_register, const RxHexFrame *hex_frame
 
 #if defined(VEDIRECT_USE_TEXTFRAME)
 void Switch::parse_text_default_(Register *hex_register, const char *text_value) {
-  static_cast<Switch *>(hex_register)->publish_state_(!strcasecmp(text_value, "ON"));
+  static_cast<Switch *>(hex_register)->publish_state(!strcasecmp(text_value, "ON"));
 }
 
 void Switch::parse_text_bitmask_(Register *hex_register, const char *text_value) {
@@ -140,20 +147,5 @@ void Switch::parse_text_enum_(Register *hex_register, const char *text_value) {
   }
 }
 #endif  // defined(VEDIRECT_USE_TEXTFRAME)
-
-void Switch::publish_state_(bool state) {
-  state = state != this->inverted_;
-  if (this->state != state) {
-    this->state = state;
-    ESP_LOGD(TAG, "'%s': Sending state %s", this->name_.c_str(), ONOFF(state));
-    this->state_callback_.call(state);
-  }
-}
-
-void Switch::republish_state_() {
-  ESP_LOGD(TAG, "'%s': Sending state %s", this->name_.c_str(), ONOFF(this->state));
-  this->state_callback_.call(this->state);
-}
-
 }  // namespace m3_vedirect
 }  // namespace esphome
