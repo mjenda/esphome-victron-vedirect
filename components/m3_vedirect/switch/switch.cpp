@@ -1,10 +1,5 @@
 #include "switch.h"
 #include "esphome/core/application.h"
-#if ESPHOME_VERSION_CODE < VERSION_CODE(2025, 11, 0)
-#ifdef USE_API
-#include "esphome/components/api/api_server.h"
-#endif
-#endif
 
 #include "../manager.h"
 
@@ -14,28 +9,18 @@ namespace esphome {
 namespace m3_vedirect {
 
 Register *Switch::build_entity(Manager *manager, const REG_DEF *reg_def, const char *name) {
-#if ESPHOME_VERSION_CODE >= VERSION_CODE(2025, 8, 0)
   if (App.get_switches().size() >= ESPHOME_ENTITY_SWITCH_COUNT) {
     return Register::drop_platform(manager, Platform::Switch);
   }
-#endif
   auto entity = new Switch(manager);
   manager->init_entity(entity, reg_def, name);
   App.register_switch(entity);
-#if ESPHOME_VERSION_CODE < VERSION_CODE(2025, 11, 0)
-// See https://github.com/esphome/esphome/pull/11772
-#if defined(USE_API)
-  entity->add_on_state_callback([entity](bool state) { api::global_api_server->on_switch_update(entity, state); });
-#endif
-#endif
   return entity;
 }
 
 void Switch::link_disconnected_() {
   this->raw_value_ = BITMASK_DEF::VALUE_UNKNOWN;
-#if ESPHOME_VERSION_CODE >= VERSION_CODE(2025, 8, 0)
   this->publish_dedup_.next_unknown();
-#endif
 }
 
 void Switch::init_reg_def_() {
@@ -91,9 +76,7 @@ void Switch::write_state(bool state) {
       break;
   }
   this->request_set_(hexvalue, [this](const HexFrame *frame, uint8_t error) {
-#if ESPHOME_VERSION_CODE >= VERSION_CODE(2025, 8, 0)
     this->publish_dedup_.next_unknown();
-#endif
     if (error) {
       // Error or timeout..resend actual state since it looks like HA esphome does optimistic
       // updates in it's HA entity instance...

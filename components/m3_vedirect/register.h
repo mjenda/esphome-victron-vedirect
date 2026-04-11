@@ -90,6 +90,8 @@ class Register : public ValueBucket<register_id_t, Register> {
 
   // called by the Manager when VEDirect timeouts (we'll send 'unknown' to APIServer)
   virtual void link_disconnected_(){};
+  /// @brief Called by Manager::init_entity to set the entity name via configure_entity_.
+  virtual void apply_entity_name_(const char *name) {}
   /// @brief Preset entity properties based off our REG_DEF. This is being called
   /// automatically by components methods when a proper definition is available.
   /// @param reg_def: the proper register definition if available

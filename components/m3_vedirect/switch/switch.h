@@ -45,6 +45,7 @@ class Switch final : public WritableRegister, public esphome::switch_::Switch {
 
   void link_disconnected_() override;
   void init_reg_def_() override;
+  void apply_entity_name_(const char *name) override { this->configure_entity_(name, fnv1_hash_object_id(name, strlen(name)), 0); }
   inline void parse_bitmask_(BITMASK_DEF::bitmask_t bitmask_value) override;
   inline void parse_enum_(ENUM_DEF::enum_t enum_value) override;
 

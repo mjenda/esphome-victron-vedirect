@@ -1,10 +1,5 @@
 #include "text_sensor.h"
 #include "esphome/core/application.h"
-#if ESPHOME_VERSION_CODE < VERSION_CODE(2025, 11, 0)
-#ifdef USE_API
-#include "esphome/components/api/api_server.h"
-#endif
-#endif
 
 #include "../manager.h"
 
@@ -14,21 +9,12 @@ namespace esphome {
 namespace m3_vedirect {
 
 Register *TextSensor::build_entity(Manager *manager, const REG_DEF *reg_def, const char *name) {
-#if ESPHOME_VERSION_CODE >= VERSION_CODE(2025, 8, 0)
   if (App.get_text_sensors().size() >= ESPHOME_ENTITY_TEXT_SENSOR_COUNT) {
     return Register::drop_platform(manager, Platform::TextSensor);
   }
-#endif
   auto entity = new TextSensor(manager);
   manager->init_entity(entity, reg_def, name);
   App.register_text_sensor(entity);
-#if ESPHOME_VERSION_CODE < VERSION_CODE(2025, 11, 0)
-// See https://github.com/esphome/esphome/pull/11772
-#if defined(USE_API)
-  entity->add_on_state_callback(
-      [entity](const std::string &state) { api::global_api_server->on_text_sensor_update(entity, state); });
-#endif
-#endif
   return entity;
 }
 
@@ -104,7 +90,7 @@ void TextSensor::parse_enum_(ENUM_DEF::enum_t enum_value) {
 }
 
 void TextSensor::parse_string_(const char *string_value) {
-  if (strcmp(this->raw_state.c_str(), string_value)) {
+  if (strcmp(this->get_raw_state().c_str(), string_value)) {
     this->raw_value_ = BITMASK_DEF::VALUE_UNKNOWN;
     this->publish_state(std::string(string_value));
   }

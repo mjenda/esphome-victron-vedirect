@@ -1,13 +1,7 @@
 #include "select.h"
 #include "esphome/core/application.h"
-#if ESPHOME_VERSION_CODE < VERSION_CODE(2025, 11, 0)
-#ifdef USE_API
-#include "esphome/components/api/api_server.h"
-#endif
-#else  // ESPHOME_VERSION_CODE >= VERSION_CODE(2025, 11, 0)
 #if defined(USE_CONTROLLER_REGISTRY)
 #include "esphome/core/controller_registry.h"
-#endif
 #endif
 
 #include "../manager.h"
@@ -22,22 +16,12 @@ static const char *const TAG = "m3_vedirect.select";
 #endif
 
 Register *Select::build_entity(Manager *manager, const REG_DEF *reg_def, const char *name) {
-#if ESPHOME_VERSION_CODE >= VERSION_CODE(2025, 8, 0)
   if (App.get_selects().size() >= ESPHOME_ENTITY_SELECT_COUNT) {
     return Register::drop_platform(manager, Platform::Select);
   }
-#endif
   auto entity = new Select(manager);
   manager->init_entity(entity, reg_def, name);
   App.register_select(entity);
-#if ESPHOME_VERSION_CODE < VERSION_CODE(2025, 11, 0)
-// See https://github.com/esphome/esphome/pull/11772
-#if defined(USE_API)
-  entity->add_on_state_callback([entity](const std::string &state, size_t index) {
-    api::global_api_server->on_select_update(entity, state, index);
-  });
-#endif
-#endif
   return entity;
 }
 
@@ -52,12 +36,8 @@ void Select::init_reg_def_() {
   if (this->reg_def_->cls == REG_DEF::CLASS::ENUM) {
     std::vector<ENUM_DEF::LOOKUP_DEF> &lookups = this->reg_def_->enum_def->LOOKUPS;
     auto &options = this->traits_().options();
-#if ESPHOME_VERSION_CODE >= VERSION_CODE(2025, 11, 0)
     // See https://github.com/esphome/esphome/pull/11772
     options.init(lookups.size());
-#else
-    options.clear();
-#endif
     for (auto &lookup_def : lookups) {
       options.push_back(lookup_def.label);
     }
@@ -81,8 +61,7 @@ void Select::parse_string_(const char *string_value) {
   // This code is a bit useless since there's no point in managing Select entities
   // that are not ENUM in VEDirect context...but let's keep it for the sake of
   // completeness.
-#if ESPHOME_VERSION_CODE >= VERSION_CODE(2025, 11, 0)
-  if (strcmp(this->current_option(), string_value)) {
+  if (strcmp(this->current_option().c_str(), string_value)) {
     auto index = this->index_of(string_value);
     if (index.has_value()) {
       this->publish_index_(index.value());
@@ -97,18 +76,6 @@ void Select::parse_string_(const char *string_value) {
     options.push_back(string_value);
     this->publish_index_(options_old.size());
   }
-#else
-  if (strcmp(this->state.c_str(), string_value)) {
-    auto &options = this->traits_().options();
-    auto value = std::string(string_value);
-    auto it = std::find(options.begin(), options.end(), value);
-    auto index = std::distance(options.begin(), it);
-    if (it == options.end()) {
-      options.push_back(value);
-    }
-    this->publish_index_(index);
-  }
-#endif
 }
 
 #if defined(VEDIRECT_USE_HEXFRAME)
@@ -182,12 +149,8 @@ void Select::publish_enum_(ENUM_DEF::enum_t enum_value) {
     // need to rebuild the whole options list since enums might be added in between
     ESP_LOGD(TAG, "'%s': Rebuilding options (prev size %zu, new size %zu)", this->get_name().c_str(), options.size(),
              enum_def->LOOKUPS.size());
-#if ESPHOME_VERSION_CODE >= VERSION_CODE(2025, 11, 0)
     // See https://github.com/esphome/esphome/pull/11772
     options.init(enum_def->LOOKUPS.size());
-#else
-    options.clear();
-#endif
     for (auto &lookup_def : enum_def->LOOKUPS) {
       options.push_back(lookup_def.label);
     }
@@ -197,32 +160,23 @@ void Select::publish_enum_(ENUM_DEF::enum_t enum_value) {
 
 void Select::publish_index_(size_t index) {
   this->set_has_state(true);
-#if ESPHOME_VERSION_CODE >= VERSION_CODE(2025, 11, 0)
   this->active_index_ = index;
   ESP_LOGD(TAG, "'%s': Sending state %s (index %zi)", this->get_name().c_str(), this->traits_().options()[index],
            index);
 #if defined(USE_CONTROLLER_REGISTRY)
   ControllerRegistry::notify_select_update(this);
 #endif
-#else
-  this->state = this->traits_().options()[index];
-  ESP_LOGD(TAG, "'%s': Sending state %s (index %zi)", this->get_name().c_str(), this->state.c_str(), index);
-#endif
-  this->state_callback_.call(this->traits_().options()[index], index);
+  this->state_callback_.call(index);
 }
 
 void Select::publish_unknown_() {
   this->set_has_state(false);
   ESP_LOGD(TAG, "'%s': Sending state 'unknown' (index %zi)", this->get_name().c_str(), static_cast<size_t>(-1));
-#if ESPHOME_VERSION_CODE >= VERSION_CODE(2025, 11, 0)
   this->active_index_ = static_cast<size_t>(-1);
 #if defined(USE_CONTROLLER_REGISTRY)
   ControllerRegistry::notify_select_update(this);
 #endif
-#else
-  this->state = "unknown";
-#endif
-  this->state_callback_.call("", static_cast<size_t>(-1));
+  this->state_callback_.call(static_cast<size_t>(-1));
 }
 }  // namespace m3_vedirect
 }  // namespace esphome

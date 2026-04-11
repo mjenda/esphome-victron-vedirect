@@ -29,6 +29,7 @@ class Number final : public WritableRegister, public NumericRegister, public esp
   friend class Manager;
   void link_disconnected_() override;
   void init_reg_def_() override;
+  void apply_entity_name_(const char *name) override { this->configure_entity_(name, fnv1_hash_object_id(name, strlen(name)), 0); }
 
   // interface esphome::number::Number
 #if defined(VEDIRECT_USE_HEXFRAME)

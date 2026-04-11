@@ -197,7 +197,7 @@ void Manager::init_register(Register *reg, const char *label) {
 /// @param entity
 /// @param reg_def nullptr if no register definition is available (dynamic TEXT registers)
 /// @param name might be nullptr, in which case reg_def must be valid (dynamic HEX registers)
-void Manager::init_entity(EntityBase *entity, const REG_DEF *reg_def, const char *name) {
+void Manager::init_entity(Register *entity, const REG_DEF *reg_def, const char *name) {
   char reg_name_buf[7];
   if (name == nullptr) {
     // If no name provided, use the register_id as name and preset the temporary buffer.
@@ -217,8 +217,7 @@ void Manager::init_entity(EntityBase *entity, const REG_DEF *reg_def, const char
       name = strdup(reg_name_buf);
     }
   }
-  entity->set_name(name);
-  entity->set_object_id(name);
+  entity->apply_entity_name_(name);
 }
 
 #if defined(VEDIRECT_USE_HEXFRAME)
@@ -493,7 +492,7 @@ void Manager::on_frame_text_(TextRecord **text_records, uint8_t text_records_cou
       textframe_value.append(text_record->value);
       textframe_value.append(",");
     }
-    if (rawtextframe->raw_state != textframe_value) {
+    if (rawtextframe->get_raw_state() != textframe_value) {
       rawtextframe->publish_state(textframe_value);
     }
   }

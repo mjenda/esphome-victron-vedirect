@@ -1,10 +1,5 @@
 #include "sensor.h"
 #include "esphome/core/application.h"
-#if ESPHOME_VERSION_CODE < VERSION_CODE(2025, 11, 0)
-#ifdef USE_API
-#include "esphome/components/api/api_server.h"
-#endif
-#endif
 
 #include "../manager.h"
 
@@ -29,20 +24,12 @@ const uint8_t Sensor::SCALE_TO_DIGITS[REG_DEF::SCALE::SCALE_COUNT] = {
 };
 
 Register *Sensor::build_entity(Manager *manager, const REG_DEF *reg_def, const char *name) {
-#if ESPHOME_VERSION_CODE >= VERSION_CODE(2025, 8, 0)
   if (App.get_sensors().size() >= ESPHOME_ENTITY_SENSOR_COUNT) {
     return Register::drop_platform(manager, Platform::Sensor);
   }
-#endif
   auto entity = new Sensor(manager);
   manager->init_entity(entity, reg_def, name);
   App.register_sensor(entity);
-#if ESPHOME_VERSION_CODE < VERSION_CODE(2025, 11, 0)
-// See https://github.com/esphome/esphome/pull/11772
-#if defined(USE_API)
-  entity->add_on_state_callback([entity](float state) { api::global_api_server->on_sensor_update(entity, state); });
-#endif
-#endif
   return entity;
 }
 
@@ -60,8 +47,6 @@ void Sensor::init_reg_def_() {
 #endif
   switch (reg_def->cls) {
     case REG_DEF::CLASS::NUMERIC:
-      this->set_unit_of_measurement(REG_DEF::UNITS[reg_def->unit]);
-      this->set_device_class(UNIT_TO_DEVICE_CLASS[reg_def->unit]);
       this->set_state_class(UNIT_TO_STATE_CLASS[reg_def->unit]);
       this->set_accuracy_decimals(SCALE_TO_DIGITS[reg_def->scale]);
       this->hex_scale_ = REG_DEF::SCALE_TO_SCALE[reg_def->scale];
