@@ -87,7 +87,7 @@ void Sensor::parse_hex_default_(Register *hex_register, const RxHexFrame *hex_fr
       sensor->parse_hex_ = parse_hex_t_<uint32_t>;
       break;
     default:
-      if (!std::isnan(sensor->raw_state)) {
+      if (!std::isnan(sensor->get_raw_state())) {
         sensor->publish_state(NAN);
       }
       return;
@@ -99,13 +99,13 @@ void Sensor::parse_hex_kelvin_(Register *hex_register, const RxHexFrame *hex_fra
   Sensor *sensor = static_cast<Sensor *>(hex_register);
   uint16_t raw_value = hex_frame->data_t<uint16_t>();
   if (raw_value == HEXFRAME::DATA_UNKNOWN<uint16_t>()) {
-    if (!std::isnan(sensor->raw_state)) {
+    if (!std::isnan(sensor->get_raw_state())) {
       sensor->publish_state(NAN);
     }
   } else {
     // hoping the operands are int-promoted and the result is an int
     float value = (raw_value - 27316) * sensor->hex_scale_;
-    if (sensor->raw_state != value) {
+    if (sensor->get_raw_state() != value) {
       sensor->publish_state(value);
     }
   }
@@ -116,12 +116,12 @@ template<typename T> void Sensor::parse_hex_t_(Register *hex_register, const RxH
   Sensor *sensor = static_cast<Sensor *>(hex_register);
   T raw_value = hex_frame->data_t<T>();
   if (raw_value == HEXFRAME::DATA_UNKNOWN<T>()) {
-    if (!std::isnan(sensor->raw_state)) {
+    if (!std::isnan(sensor->get_raw_state())) {
       sensor->publish_state(NAN);
     }
   } else {
     float value = raw_value * sensor->hex_scale_;
-    if (sensor->raw_state != value) {
+    if (sensor->get_raw_state() != value) {
       sensor->publish_state(value);
     }
   }
@@ -141,11 +141,11 @@ void Sensor::parse_text_default_(Register *hex_register, const char *text_value)
   float value = strtof(text_value, &endptr) * sensor->text_scale_;
   if (*endptr) {
     // failed conversion
-    if (!std::isnan(sensor->raw_state)) {
+    if (!std::isnan(sensor->get_raw_state())) {
       sensor->publish_state(NAN);
     }
   } else {
-    if (sensor->raw_state != value) {
+    if (sensor->get_raw_state() != value) {
       sensor->publish_state(value);
     }
   }

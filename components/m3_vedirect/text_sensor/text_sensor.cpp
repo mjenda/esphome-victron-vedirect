@@ -90,7 +90,7 @@ void TextSensor::parse_enum_(ENUM_DEF::enum_t enum_value) {
 }
 
 void TextSensor::parse_string_(const char *string_value) {
-  if (strcmp(this->raw_state.c_str(), string_value)) {
+  if (strcmp(this->get_raw_state().c_str(), string_value)) {
     this->raw_value_ = BITMASK_DEF::VALUE_UNKNOWN;
     this->publish_state(std::string(string_value));
   }
